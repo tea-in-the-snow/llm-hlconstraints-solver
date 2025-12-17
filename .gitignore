@@ -1,0 +1,16 @@
+/log
+simple_test.py
+test.py
+test_api_key.py
+
+__pycache__/
+*.py[cod]
+.venv/
+.env
+.env.*
+.DS_Store
+.vscode/
+.idea/
+.pytest_cache/
+.coverage
+htmlcov/
