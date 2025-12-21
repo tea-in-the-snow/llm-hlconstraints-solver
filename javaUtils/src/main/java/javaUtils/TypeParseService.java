@@ -104,7 +104,11 @@ public class TypeParseService {
             if (field.isPublic() || field.isProtected()) {
                 fields.put(field.getName(), field.getType().toString());
                 SootClass sc = parseType(field.getType());
-                if (sc != null) handleQueue.add(sc);
+                if (sc != null) {
+                    handleQueue.add(sc);
+                    // If field type is an interface or abstract class, fetch its implementers/subclasses
+                    handleImplementersOrSubclasses(sc);
+                }
             }
         }
 
@@ -149,7 +153,11 @@ public class TypeParseService {
             if (field.isPublic() || field.isProtected()) {
                 fields.put(field.getName(), field.getType().toString());
                 SootClass sc = parseType(field.getType());
-                if (sc != null) handleQueue.add(sc);
+                if (sc != null) {
+                    handleQueue.add(sc);
+                    // If field type is an interface or abstract class, fetch its implementers/subclasses
+                    handleImplementersOrSubclasses(sc);
+                }
             }
         }
 
@@ -161,7 +169,14 @@ public class TypeParseService {
             String signature = getConstructorSignature(constructor);
             LinkedHashMap<String, String> params = getMethodParameters(constructor);
             constructors.put(signature, params);
-            for (Type paramType : constructor.getParameterTypes()) { SootClass sc = parseType(paramType); if (sc != null) handleQueue.add(sc); }
+            for (Type paramType : constructor.getParameterTypes()) {
+                SootClass sc = parseType(paramType);
+                if (sc != null) {
+                    handleQueue.add(sc);
+                    // If parameter type is an interface or abstract class, fetch its implementers/subclasses
+                    handleImplementersOrSubclasses(sc);
+                }
+            }
         }
 
         List<SootMethod> builderMethods = sootClass.getMethods().stream()
@@ -172,7 +187,36 @@ public class TypeParseService {
             String signature = getMethodSignature(builder);
             LinkedHashMap<String, String> params = getMethodParameters(builder);
             builders.put(signature, params);
-            for (Type paramType : builder.getParameterTypes()) { SootClass sc = parseType(paramType); if (sc != null) handleQueue.add(sc); }
+            for (Type paramType : builder.getParameterTypes()) {
+                SootClass sc = parseType(paramType);
+                if (sc != null) {
+                    handleQueue.add(sc);
+                    // If parameter type is an interface or abstract class, fetch its implementers/subclasses
+                    handleImplementersOrSubclasses(sc);
+                }
+            }
+        }
+
+        // If this is an abstract class, collect constructors of concrete subclasses
+        Map<String, Map<String, LinkedHashMap<String, String>>> concreteSubclassConstructors = new HashMap<>();
+        if (sootClass.isAbstract()) {
+            for (SootClass subClass : subClasses) {
+                if (!subClass.isAbstract() && !subClass.isInterface() && subClass.isPublic()) {
+                    // Get constructors of concrete subclass
+                    List<SootMethod> subCtors = subClass.getMethods().stream()
+                            .filter(m -> m.isConstructor() && (m.isPublic() || m.isProtected()))
+                            .collect(Collectors.toList());
+                    if (!subCtors.isEmpty()) {
+                        Map<String, LinkedHashMap<String, String>> subClassConstructors = new HashMap<>();
+                        for (SootMethod subCtor : subCtors) {
+                            String signature = getConstructorSignature(subCtor);
+                            LinkedHashMap<String, String> params = getMethodParameters(subCtor);
+                            subClassConstructors.put(signature, params);
+                        }
+                        concreteSubclassConstructors.put(subClass.getName(), subClassConstructors);
+                    }
+                }
+            }
         }
 
         handledTypes.put(sootClass.getName(), new TypeInfoJson()
@@ -183,7 +227,8 @@ public class TypeParseService {
                 .setInterfaces(interfacesName)
                 .setFields(fields)
                 .setConstructors(constructors)
-                .setBuilders(builders));
+                .setBuilders(builders)
+                .setConcreteSubclassConstructors(concreteSubclassConstructors));
     }
 
     private static String getConstructorSignature(SootMethod constructor) {
@@ -215,6 +260,40 @@ public class TypeParseService {
         String typeName = type.toString();
         int idx = typeName.lastIndexOf('.');
         return idx >= 0 ? typeName.substring(idx + 1) : typeName;
+    }
+
+    /**
+     * When a parameter type is an interface or abstract class,
+     * add its implementers (for interfaces) or subclasses (for abstract classes) to the queue.
+     */
+    private static void handleImplementersOrSubclasses(SootClass sootClass) {
+        if (sootClass.isInterface()) {
+            try {
+                if (Scene.v().getActiveHierarchy() != null) {
+                    List<SootClass> implementers = Scene.v().getActiveHierarchy().getDirectImplementersOf(sootClass);
+                    for (SootClass impl : implementers) {
+                        if (!handledTypes.containsKey(impl.getName())) {
+                            handleQueue.add(impl);
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                System.err.println("Error getting implementers for " + sootClass.getName() + ": " + e.getMessage());
+            }
+        } else if (sootClass.isAbstract()) {
+            try {
+                if (Scene.v().getActiveHierarchy() != null) {
+                    List<SootClass> subClasses = Scene.v().getActiveHierarchy().getDirectSubclassesOf(sootClass);
+                    for (SootClass subClass : subClasses) {
+                        if (!handledTypes.containsKey(subClass.getName())) {
+                            handleQueue.add(subClass);
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                System.err.println("Error getting subclasses for " + sootClass.getName() + ": " + e.getMessage());
+            }
+        }
     }
 
     public static void clearCache() { handledTypes.clear(); handleQueue.clear(); }

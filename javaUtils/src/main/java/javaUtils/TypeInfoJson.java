@@ -34,6 +34,9 @@ public class TypeInfoJson {
     // For arrays
     private String innerClassName;
     private Integer dimension;
+    
+    // For abstract classes: constructors of concrete subclasses (for LLM to choose from)
+    private Map<String, Map<String, LinkedHashMap<String, String>>> concreteSubclassConstructors;
 
     public TypeInfoJson() {
         this.subClassName = new ArrayList<>();
@@ -44,6 +47,7 @@ public class TypeInfoJson {
         this.constructors = new HashMap<>();
         this.builders = new HashMap<>();
         this.methods = new ArrayList<>();
+        this.concreteSubclassConstructors = new HashMap<>();
     }
 
     public String getTypeName() { return typeName; }
@@ -72,6 +76,11 @@ public class TypeInfoJson {
     public TypeInfoJson setInnerClassName(String innerClassName) { this.innerClassName = innerClassName; return this; }
     public Integer getDimension() { return dimension; }
     public TypeInfoJson setDimension(Integer dimension) { this.dimension = dimension; return this; }
+    public Map<String, Map<String, LinkedHashMap<String, String>>> getConcreteSubclassConstructors() { return concreteSubclassConstructors; }
+    public TypeInfoJson setConcreteSubclassConstructors(Map<String, Map<String, LinkedHashMap<String, String>>> concreteSubclassConstructors) {
+        this.concreteSubclassConstructors = concreteSubclassConstructors;
+        return this;
+    }
 
     // Utility for JSON escaping
     private static String jescape(String s) {
@@ -137,6 +146,19 @@ public class TypeInfoJson {
         return sb.toString();
     }
 
+    private static String joinDoubleNested(Map<String, Map<String, LinkedHashMap<String, String>>> map) {
+        if (map == null || map.isEmpty()) return "{}";
+        StringBuilder sb = new StringBuilder("{");
+        boolean first = true;
+        for (Map.Entry<String, Map<String, LinkedHashMap<String, String>>> e : map.entrySet()) {
+            if (!first) sb.append(',');
+            first = false;
+            sb.append(jescape(e.getKey())).append(':').append(joinNested(e.getValue()));
+        }
+        sb.append('}');
+        return sb.toString();
+    }
+
     /**
      * Manual JSON serialization without external libraries.
      */
@@ -154,6 +176,7 @@ public class TypeInfoJson {
         sb.append("\"constructors\":").append(joinNested(constructors)).append(',');
         sb.append("\"builders\":").append(joinNested(builders)).append(',');
         sb.append("\"methods\":").append(joinList(methods)).append(',');
+        sb.append("\"concreteSubclassConstructors\":").append(joinDoubleNested(concreteSubclassConstructors)).append(',');
         sb.append("\"innerClassName\":").append(innerClassName == null ? "null" : jescape(innerClassName)).append(',');
         sb.append("\"dimension\":").append(dimension == null ? "null" : dimension);
         sb.append('}');

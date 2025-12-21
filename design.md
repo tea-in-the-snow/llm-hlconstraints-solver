@@ -194,6 +194,14 @@ heap_solver_output
 
 基于 heap_solver 的求解结果，通过 javaUtils 查询相关类型以及类型的复杂类型field的构造函数信息，利用大模型生成构造所有符号化对象的 java 代码，要求包含完整的 import 等内容。
 
+### code_executor_agent
+
+执行 initializer 生成的代码，将通过执行构造函数链生成的对象转化成 JSON 对象
+
+### code_executor_refiner
+
+如果生成的代码在编译或执行时报错，尝试让大模型根据报错信息解决报错然后重新回到 code_executor_agent 进行执行
+
 ## logger
 
 记录每个 agent 的输入输出，其中，涉及到 LLM 的 agent 记录与 LLM 的对话记录

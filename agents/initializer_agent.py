@@ -227,11 +227,39 @@ class InitializerAgent:
             "Constraints (for context):\n" + constraints_block + "\n\n" +
             "Initialization Plan (JSON):\n" + "```json\n" + plan_block + "\n```\n\n" +
             "Requirements:\n" +
-            "- Include all necessary import statements.\n" +
-            "- Use variable names from the plan.\n" +
+            "- Include all necessary import statements, including 'import com.google.gson.Gson;'.\n" +
+            "- Use variable names from the plan, but remove the '(ref)' suffix when creating Java variables.\n" +
+            "  For example, if the plan has 'plot(ref)', use variable name 'plot' in Java code.\n" +
             "- For each object, choose a sensible constructor signature from the plan.\n" +
+            "- IMPORTANT: If a class is marked as 'abstract class' in the plan, DO NOT instantiate it directly.\n" +
+            "  Instead, use a concrete subclass listed in 'concreteSubclassConstructors' field.\n" +
+            "  This field contains available concrete implementations with their constructors.\n" +
             "- Recursively initialize complex field types shown under children.\n" +
             "- Avoid private members; focus on public/protected constructors and fields.\n" +
+            "- At the end of the main method, serialize each created object to JSON using Gson.\n" +
+            "  IMPORTANT: Use a custom Gson configuration to avoid serialization issues with complex JDK types:\n" +
+            "  - Import: com.google.gson.GsonBuilder, com.google.gson.ExclusionStrategy, com.google.gson.FieldAttributes\n" +
+            "  - Create Gson instance: new GsonBuilder().setExclusionStrategies(new ExclusionStrategy() {\n" +
+            "      public boolean shouldSkipField(FieldAttributes f) {\n" +
+            "          return f.getDeclaredClass().getName().startsWith(\"java.text.\") ||\n" +
+            "                 f.getDeclaredClass().getName().startsWith(\"java.awt.\") ||\n" +
+            "                 f.getDeclaredClass().getName().equals(\"java.text.DecimalFormat\") ||\n" +
+            "                 f.getDeclaredClass().getName().equals(\"java.text.NumberFormat\");\n" +
+            "      }\n" +
+            "      public boolean shouldSkipClass(Class<?> clazz) {\n" +
+            "          return clazz.getName().startsWith(\"java.text.\") ||\n" +
+            "                 clazz.getName().startsWith(\"java.awt.\") ||\n" +
+            "                 clazz.getName().equals(\"java.text.DecimalFormat\") ||\n" +
+            "                 clazz.getName().equals(\"java.text.NumberFormat\");\n" +
+            "      }\n" +
+            "  }).create();\n" +
+            "  This prevents serialization errors with types like DecimalFormat that have field name conflicts.\n" +
+            "- For each object created from the plan, output a JSON object with the following format:\n" +
+            "  {\"variable\": \"<variable_name_from_plan>\", \"object\": <serialized_json_object>}\n" +
+            "  For example, if the plan has 'plot(ref)' and you created a variable 'plot', output:\n" +
+            "  {\"variable\": \"plot(ref)\", \"object\": <gson.toJson(plot)>}\n" +
+            "  This allows mapping the returned objects back to the symbolic references in constraints.\n" +
+            "- Print each JSON object (one per line) to stdout using System.out.println().\n" +
             "- Output ONLY one Java code block wrapped in triple backticks (```java)."
         )
 

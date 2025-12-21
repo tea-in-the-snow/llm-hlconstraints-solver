@@ -3,6 +3,9 @@ Refiner Agent - Corrects errors detected by verifiers (using LLM).
 
 When type_solver_verifier or heap_solver_verifier detects invalid results,
 this agent modifies and improves the output based on verifier feedback (using LLM).
+
+When code_executor encounters compilation or runtime errors,
+this agent fixes the Java code based on error messages (using LLM).
 """
 
 from typing import List, Dict, Optional, Any, Tuple
@@ -269,3 +272,143 @@ class RefinerAgent:
                 "error": str(e),
             }
             return None, f"Error during Refiner invocation: {str(e)}", log_entry
+    
+    def refine_code_executor(
+        self,
+        java_code: str,
+        compile_output: str = "",
+        run_error: str = "",
+        error: str = "",
+        constraints: Optional[List[str]] = None,
+        initialization_plan: Optional[Dict[str, Any]] = None,
+        heap_solver_output: Optional[Dict[str, Any]] = None,
+    ) -> Tuple[str, str, Dict[str, Any]]:
+        """
+        Refine Java code that failed to compile or execute.
+        
+        Args:
+            java_code: The original Java code that failed
+            compile_output: Compilation error output (stdout/stderr from javac)
+            run_error: Runtime error output (stderr from java)
+            error: General error message
+            constraints: Optional list of constraints (for context)
+            initialization_plan: Optional initialization plan (for context)
+            heap_solver_output: Optional heap solver output (for context)
+        
+        Returns:
+            Tuple of (fixed_java_code, raw_llm_output_string, conversation_log)
+        """
+        system_prompt = (
+            "You are a Java code debugging and fixing assistant. "
+            "Your task is to fix compilation or runtime errors in Java code.\n\n"
+            "Given:\n"
+            "1. Original Java code that failed to compile or execute\n"
+            "2. Compilation errors (if any)\n"
+            "3. Runtime errors (if any)\n"
+            "4. Additional context (constraints, initialization plan, etc.)\n\n"
+            "Please:\n"
+            "1. Analyze the error messages carefully\n"
+            "2. Identify the root cause of the problem\n"
+            "3. Fix the code while preserving the original intent\n"
+            "4. Ensure the fixed code includes all necessary imports\n"
+            "5. Ensure the fixed code can compile and run successfully\n\n"
+            "Important rules:\n"
+            "1. Output ONLY the corrected Java code wrapped in triple backticks (```java ... ```)\n"
+            "2. Do not add explanations outside the code block\n"
+            "3. Preserve the structure and logic of the original code\n"
+            "4. Make sure all imports are included\n"
+            "5. Ensure the main method and JSON serialization logic are preserved\n"
+            "6. When outputting objects, use the format: {\"variable\": \"<variable_name_from_plan>\", \"object\": <serialized_json>}\n"
+            "   This allows mapping objects back to symbolic references in constraints.\n\n"
+            "Special handling for Gson serialization errors:\n"
+            "If you encounter Gson serialization errors related to complex types (e.g., DecimalFormat, "
+            "NumberFormat, or other JDK internal classes that declare multiple JSON fields with the same name), "
+            "you should use a custom Gson configuration to exclude these problematic types. "
+            "Use GsonBuilder with ExclusionStrategy to skip serialization of problematic classes:\n"
+            "- Import: com.google.gson.GsonBuilder, com.google.gson.ExclusionStrategy, com.google.gson.FieldAttributes\n"
+            "- Create a Gson instance using: new GsonBuilder().setExclusionStrategies(new ExclusionStrategy() {...}).create()\n"
+            "- In the ExclusionStrategy, skip classes that cause serialization issues (e.g., DecimalFormat, NumberFormat)\n"
+            "- This allows the rest of the object graph to be serialized successfully"
+        )
+        
+        # Build error information block
+        error_block = "Error Information:\n"
+        if error:
+            error_block += f"General Error: {error}\n"
+        if compile_output:
+            error_block += f"\nCompilation Output:\n{compile_output}\n"
+        if run_error:
+            error_block += f"\nRuntime Error:\n{run_error}\n"
+        if not error and not compile_output and not run_error:
+            error_block += "No specific error details provided\n"
+        error_block += "\n"
+        
+        # Build constraints block (optional)
+        constraints_block = ""
+        if constraints:
+            constraints_block = "Constraints (for context):\n"
+            constraints_block += "\n".join(f"- {c}" for c in constraints)
+            constraints_block += "\n\n"
+        
+        # Build initialization plan block (optional)
+        plan_block = ""
+        if initialization_plan:
+            plan_block = "Initialization Plan (for context):\n"
+            import json
+            plan_block += "```json\n"
+            plan_block += json.dumps(initialization_plan, indent=2, ensure_ascii=False)
+            plan_block += "\n```\n\n"
+        
+        # Build heap solver output block (optional)
+        heap_block = ""
+        if heap_solver_output:
+            heap_block = "Heap Solver Output (for context):\n"
+            import json
+            heap_block += "```json\n"
+            heap_block += json.dumps(heap_solver_output, indent=2, ensure_ascii=False)
+            heap_block += "\n```\n\n"
+        
+        human_prompt = (
+            f"{constraints_block}"
+            f"{plan_block}"
+            f"{heap_block}"
+            f"Original Java Code:\n```java\n{java_code}\n```\n\n"
+            f"{error_block}"
+            "Please provide the corrected Java code that fixes all compilation and runtime errors."
+        )
+        
+        try:
+            response = self.llm.invoke([
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=human_prompt),
+            ])
+            raw_output = response.content if hasattr(response, 'content') else str(response)
+            
+            # Extract Java code block from response
+            import re
+            code_block = None
+            m = re.search(r"```java\s*(.*?)```", raw_output, flags=re.DOTALL | re.IGNORECASE)
+            if m:
+                code_block = m.group(1).strip()
+            else:
+                # If no code block found, try to use the raw output as code
+                code_block = raw_output.strip()
+            
+            log_entry = {
+                "agent": "refiner",
+                "stage": "refine_code_executor",
+                "system": system_prompt,
+                "human": human_prompt,
+                "response": raw_output,
+            }
+            return code_block, raw_output, log_entry
+        except Exception as e:
+            log_entry = {
+                "agent": "refiner",
+                "stage": "refine_code_executor",
+                "system": system_prompt,
+                "human": human_prompt,
+                "response": "",
+                "error": str(e),
+            }
+            return java_code, f"Error during Refiner invocation: {str(e)}", log_entry
