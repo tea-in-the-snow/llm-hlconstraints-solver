@@ -190,6 +190,10 @@ heap_solver_output
 
 修改后继续返回 verifier 进行验证，如果还是不正确，再重试一次，还是不正确，则直接返回 UNKNOW
 
+### initializer
+
+基于 heap_solver 的求解结果，通过 javaUtils 查询相关类型以及类型的复杂类型field的构造函数信息，利用大模型生成构造所有符号化对象的 java 代码，要求包含完整的 import 等内容。
+
 ## logger
 
 记录每个 agent 的输入输出，其中，涉及到 LLM 的 agent 记录与 LLM 的对话记录

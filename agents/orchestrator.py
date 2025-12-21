@@ -15,6 +15,7 @@ from .type_solver_verifier import TypeSolverVerifier
 from .heap_solver_agent import HeapSolverAgent
 from .heap_solver_verifier import HeapSolverVerifier
 from .refiner_agent import RefinerAgent
+from .initializer_agent import InitializerAgent
 
 
 class MultiAgentOrchestrator:
@@ -48,6 +49,7 @@ class MultiAgentOrchestrator:
         self.type_solver_verifier = TypeSolverVerifier()
         self.heap_solver = HeapSolverAgent(llm)
         self.heap_solver_verifier = HeapSolverVerifier()
+        self.initializer = InitializerAgent(llm)
         
         # Refiner uses temperature=0 for precise corrections
         refiner_llm = ChatOpenAI(
@@ -129,12 +131,27 @@ class MultiAgentOrchestrator:
                 "error": f"heap_solver returned non-object JSON: {type(heap_solver_output)}",
             }
         
-        # Return final result
+        # Return final result, and if SAT, append initialization code via initializer agent
         if heap_solver_output:
-            return {
+            final_result = {
                 "result": heap_solver_output.get("result", "UNKNOWN"),
                 "valuation": heap_solver_output.get("valuation", []),
             }
+
+            if final_result["result"] == "SAT":
+                init_payload, init_raw, init_log = self.initializer.generate(
+                    constraints=constraints,
+                    heap_solver_output=heap_solver_output,
+                )
+                # Record initializer log
+                if init_log:
+                    self.conversation_logs.append(init_log)
+                # Attach generated code (if any)
+                if isinstance(init_payload, dict):
+                    final_result["initialization_code"] = init_payload.get("initialization_code", "")
+                    final_result["initialization_plan"] = init_payload.get("plan", {})
+
+            return final_result
         else:
             return {
                 "result": "UNKNOWN",
