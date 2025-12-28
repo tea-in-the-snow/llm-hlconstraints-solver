@@ -189,12 +189,24 @@ class HeapSolverVerifier:
         variables = set()
         
         # Match variable references: varname(ref) or varname(ref).field(ref)...
-        pattern = r"\b([a-zA-Z_][a-zA-Z0-9_]*(?:\(ref\))?(?:\.[a-zA-Z_][a-zA-Z0-9_]*\(ref\))*)"
+        # Handle both quoted and unquoted variable names
+        # Pattern 1: Match quoted variables: 'varname(ref)' or 'varname(ref).field(ref)'
+        pattern_quoted = r"'([a-zA-Z_][a-zA-Z0-9_]*(?:\(ref\))?(?:\.[a-zA-Z_][a-zA-Z0-9_]*\(ref\))*)'"
+        
+        # Pattern 2: Match unquoted variables (backward compatibility)
+        pattern_unquoted = r"\b([a-zA-Z_][a-zA-Z0-9_]*(?:\(ref\))?(?:\.[a-zA-Z_][a-zA-Z0-9_]*\(ref\))*)"
         
         for constraint in constraints:
-            matches = re.findall(pattern, constraint)
-            for match in matches:
+            # First, try to match quoted variables
+            matches_quoted = re.findall(pattern_quoted, constraint)
+            for match in matches_quoted:
                 if '(ref)' in match:
+                    variables.add(match)
+            
+            # Then, try to match unquoted variables (avoid duplicates)
+            matches_unquoted = re.findall(pattern_unquoted, constraint)
+            for match in matches_unquoted:
+                if '(ref)' in match and match not in variables:
                     variables.add(match)
         
         return variables

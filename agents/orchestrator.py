@@ -62,13 +62,16 @@ class MultiAgentOrchestrator:
         self.code_executor = CodeExecutorAgent(classpath=classpath, jdk_home=jdk_home)
         
         # Refiner uses temperature=0 for precise corrections
-        refiner_llm = ChatOpenAI(
+        from .llm_wrapper import wrap_llm_with_rate_limiting
+        
+        refiner_llm_base = ChatOpenAI(
             model=llm.model_name,
             api_key=llm.openai_api_key,
             base_url=llm.openai_api_base if hasattr(llm, 'openai_api_base') else None,
             temperature=0.0,
             max_tokens=llm.max_tokens,
         )
+        refiner_llm = wrap_llm_with_rate_limiting(refiner_llm_base)
         self.refiner = RefinerAgent(refiner_llm)
         
         self.max_retries = max_retries
@@ -152,6 +155,8 @@ class MultiAgentOrchestrator:
                 init_payload, init_raw, init_log = self.initializer.generate(
                     constraints=constraints,
                     heap_solver_output=heap_solver_output,
+                    type_solver_output=type_solver_output,
+                    variable_static_type=variable_static_type,
                 )
                 # Record initializer log
                 if init_log:
@@ -160,6 +165,15 @@ class MultiAgentOrchestrator:
                 if isinstance(init_payload, dict):
                     final_result["initialization_code"] = init_payload.get("initialization_code", "")
                     final_result["initialization_plan"] = init_payload.get("plan", {})
+                    
+                    # CRITICAL: Update valuation to include all initialized objects
+                    # The initialization_plan may contain variables not in heap_solver output
+                    # (e.g., method parameters added from variable_static_type)
+                    # We need to add these to valuation so Java side can process them
+                    final_result["valuation"] = self._merge_valuations_with_initialization_plan(
+                        heap_solver_output.get("valuation", []),
+                        init_payload.get("plan", {}),
+                    )
                     
                     # Execute the generated code with retry logic using refiner
                     init_code = final_result.get("initialization_code", "")
@@ -407,6 +421,54 @@ class MultiAgentOrchestrator:
             "iterations": iteration,
         }
         return exec_result
+    
+    def _merge_valuations_with_initialization_plan(
+        self,
+        heap_valuation: List[Dict[str, Any]],
+        initialization_plan: Dict[str, Any],
+    ) -> List[Dict[str, Any]]:
+        """
+        Merge heap_solver valuation with variables from initialization_plan.
+        
+        This ensures that all initialized objects (including those added from variable_static_type)
+        are included in the final valuation, even if they weren't in heap_solver output.
+        
+        Args:
+            heap_valuation: Original valuation from heap_solver
+            initialization_plan: Initialization plan containing all objects to be initialized
+        
+        Returns:
+            Merged valuation list
+        """
+        # Start with heap_solver valuation
+        merged = list(heap_valuation) if heap_valuation else []
+        
+        # Build a set of variables already in heap valuation
+        existing_vars = set()
+        for entry in merged:
+            if isinstance(entry, dict) and "variable" in entry:
+                existing_vars.add(entry["variable"])
+        
+        # Add variables from initialization_plan that are not in heap valuation
+        objects = initialization_plan.get("objects", []) if isinstance(initialization_plan, dict) else []
+        next_ref_id = len(merged) + 1  # Start reference IDs after existing ones
+        
+        for obj in objects:
+            if isinstance(obj, dict):
+                var_name = obj.get("variable")
+                if var_name and var_name not in existing_vars:
+                    # Add this variable to valuation
+                    merged.append({
+                        "variable": var_name,
+                        "type": obj.get("type", "Ljava/lang/Object;"),
+                        "newObject": obj.get("newObject", True),
+                        "trueRef": True,
+                        "reference": next_ref_id,
+                    })
+                    existing_vars.add(var_name)
+                    next_ref_id += 1
+        
+        return merged
     
     def _build_object_mapping(
         self,

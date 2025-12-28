@@ -29,3 +29,22 @@ JAVA_UTILS_PATH = "/home/shaoran/repos/new-jdart/llm-hlconstraints-solver/javaUt
 TYPE_PARSE_SERVICE_CLASS = "javaUtils.TypeParseService"
 TYPE_INFO_JSON_CLASS = "javaUtils.TypeInfoJson"
 
+# Concurrency configuration
+# Maximum number of concurrent requests (0 = unlimited, recommended: CPU count * 2)
+MAX_CONCURRENT_REQUESTS = int(os.getenv("MAX_CONCURRENT_REQUESTS", "0"))
+# Thread pool size for asyncio.to_thread (0 = use default, recommended: CPU count * 4)
+THREAD_POOL_SIZE = int(os.getenv("THREAD_POOL_SIZE", "0"))
+
+# API Rate Limiting configuration
+# Maximum requests per minute for LLM API (0 = unlimited, recommended: 60-120)
+# Note: Different API providers have different limits:
+# - OpenAI: ~60-3500 requests/min depending on tier
+# - DeepSeek: ~60 requests/min for free tier
+API_REQUESTS_PER_MINUTE = int(os.getenv("API_REQUESTS_PER_MINUTE", "60"))
+# Maximum requests per second (0 = no limit, recommended: 2-5)
+API_REQUESTS_PER_SECOND = int(os.getenv("API_REQUESTS_PER_SECOND", "0"))
+# Maximum retries for 429 (rate limit) errors
+API_MAX_RETRIES = int(os.getenv("API_MAX_RETRIES", "3"))
+# Enable API rate limiting (set to "false" to disable)
+API_RATE_LIMITING_ENABLED = os.getenv("API_RATE_LIMITING_ENABLED", "true").lower() == "true"
+

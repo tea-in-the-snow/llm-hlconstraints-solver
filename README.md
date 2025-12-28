@@ -26,9 +26,54 @@ Optional overrides in config.py: LLM_MODEL (default deepseek-chat), BASE_URL (de
 
 Run
 ---
+**Basic (single process, async):**
 ```bash
 uvicorn app:app --host 0.0.0.0 --port 8000
 ```
+
+**Multi-process (recommended for production):**
+```bash
+# Using start script (auto-detects CPU count)
+./start_server.sh
+
+# Or manually with multiple workers
+uvicorn app:app --host 0.0.0.0 --port 8000 --workers 4
+
+# Custom configuration
+WORKERS=4 PORT=8000 ./start_server.sh
+```
+
+**Concurrency Configuration:**
+Set environment variables in `.env` or `config.py`:
+- `MAX_CONCURRENT_REQUESTS`: Maximum concurrent requests per worker (0 = unlimited, default: 0)
+- `THREAD_POOL_SIZE`: Thread pool size for async operations (0 = use default, default: 0)
+
+**API Rate Limiting (Important for preventing 429 errors):**
+- `API_RATE_LIMITING_ENABLED`: Enable/disable rate limiting (default: true)
+- `API_REQUESTS_PER_MINUTE`: Maximum requests per minute to LLM API (default: 60)
+- `API_REQUESTS_PER_SECOND`: Maximum requests per second (0 = no limit, default: 0)
+- `API_MAX_RETRIES`: Maximum retries for 429 errors (default: 3)
+
+Example `.env`:
+```
+OPENAI_API_KEY=sk-...
+MAX_CONCURRENT_REQUESTS=10
+THREAD_POOL_SIZE=16
+API_REQUESTS_PER_MINUTE=60
+API_REQUESTS_PER_SECOND=2
+API_MAX_RETRIES=3
+```
+
+**Performance Tips:**
+- For CPU-bound tasks: Use `--workers` equal to CPU count
+- For I/O-bound tasks (LLM API calls): Use more workers (CPU count * 2-4)
+- **Important**: Set `API_REQUESTS_PER_MINUTE` based on your API provider's limits:
+  - OpenAI: 60-3500 req/min (depends on tier)
+  - DeepSeek: ~60 req/min (free tier)
+  - Other providers: Check their documentation
+- Rate limiting automatically retries on 429 errors with exponential backoff
+- Limit `MAX_CONCURRENT_REQUESTS` to avoid overwhelming the API
+- Adjust `THREAD_POOL_SIZE` based on expected concurrent operations
 
 API
 ---

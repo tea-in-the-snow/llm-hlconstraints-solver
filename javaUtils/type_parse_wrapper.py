@@ -29,6 +29,11 @@ class TypeInfo:
         self.methods = data.get('methods', [])
         self.inner_class_name = data.get('innerClassName')
         self.dimension = data.get('dimension')
+        # For abstract classes: map from concrete subclass name ->
+        #   { constructorSignature -> ordered param map }
+        # We keep the raw JSON structure here and let higher-level
+        # code decide how to expose it.
+        self.concrete_subclass_constructors = data.get('concreteSubclassConstructors', {})
     
     def is_interface(self) -> bool:
         return self.class_type == 'interface'
@@ -50,6 +55,14 @@ class TypeInfo:
     
     def get_builder_signatures(self) -> List[str]:
         return list(self.builders.keys()) if self.builders else []
+    
+    def get_concrete_subclass_constructors(self) -> Dict[str, Dict[str, Dict[str, str]]]:
+        """
+        Return mapping:
+          subclass FQN -> { constructorSignature -> ordered paramName->type map }
+        Only meaningful for abstract classes; empty for others.
+        """
+        return self.concrete_subclass_constructors or {}
     
     def get_all_related_types(self) -> List[str]:
         related = []
